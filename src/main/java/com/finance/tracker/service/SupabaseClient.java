@@ -1,0 +1,137 @@
+package com.finance.tracker.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finance.tracker.config.AppProperties;
+import com.finance.tracker.exception.AppException;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Map;
+import java.util.UUID;
+
+@Component
+public class SupabaseClient {
+
+    private final AppProperties props;
+    private final ObjectMapper mapper;
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+
+    public SupabaseClient(AppProperties props, ObjectMapper mapper) {
+        this.props = props;
+        this.mapper = mapper;
+    }
+
+    public record AuthUserInfo(UUID id, String email, String name) {}
+    public record SessionTokens(String accessToken, String refreshToken, Integer expiresIn, String tokenType) {}
+    public record AuthResult(AuthUserInfo user, SessionTokens session) {}
+
+    public AuthUserInfo adminCreateUser(String email, String password, String name) {
+        JsonNode data = post(
+                props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/admin/users",
+                props.getSupabase().getServiceRoleKey(),
+                Map.of(
+                        "email", email,
+                        "password", password,
+                        "email_confirm", true,
+                        "user_metadata", Map.of("name", name)
+                )
+        );
+        JsonNode user = data.path("id").isMissingNode() ? data.path("user") : data;
+        if (user.path("id").isMissingNode()) {
+            throw AppException.upstream("Failed to create user");
+        }
+        return new AuthUserInfo(UUID.fromString(user.path("id").asText()), email, name);
+    }
+
+    public AuthResult signIn(String email, String password) {
+        JsonNode data = post(
+                props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/token?grant_type=password",
+                props.getSupabase().getAnonKey(),
+                Map.of("email", email, "password", password)
+        );
+        return parseAuth(data);
+    }
+
+    public AuthResult refresh(String refreshToken) {
+        JsonNode data = post(
+                props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/token?grant_type=refresh_token",
+                props.getSupabase().getAnonKey(),
+                Map.of("refresh_token", refreshToken)
+        );
+        return parseAuth(data);
+    }
+
+    public void signOut(String accessToken) {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/logout"))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("apikey", props.getSupabase().getAnonKey())
+                    .header("Authorization", "Bearer " + accessToken)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            http.send(req, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception ignored) {
+        }
+    }
+
+    public String oauthUrl(String provider, String redirectTo) {
+        StringBuilder url = new StringBuilder(props.getSupabase().getUrl().replaceAll("/$", ""))
+                .append("/auth/v1/authorize?provider=").append(provider);
+        if (redirectTo != null && !redirectTo.isBlank()) {
+            url.append("&redirect_to=").append(java.net.URLEncoder.encode(redirectTo, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return url.toString();
+    }
+
+    private AuthResult parseAuth(JsonNode data) {
+        JsonNode userNode = data.path("user");
+        if (userNode.isMissingNode() || userNode.path("id").isMissingNode()) {
+            throw AppException.unauthorized("Invalid email or password");
+        }
+        String name = userNode.path("user_metadata").path("name").asText(null);
+        AuthUserInfo user = new AuthUserInfo(
+                UUID.fromString(userNode.path("id").asText()),
+                userNode.path("email").asText(null),
+                name
+        );
+        SessionTokens session = new SessionTokens(
+                data.path("access_token").asText(null),
+                data.path("refresh_token").asText(null),
+                data.path("expires_in").isNumber() ? data.path("expires_in").asInt() : null,
+                data.path("token_type").asText("bearer")
+        );
+        if (session.accessToken() == null) {
+            throw AppException.unauthorized("Invalid email or password");
+        }
+        return new AuthResult(user, session);
+    }
+
+    private JsonNode post(String url, String apiKey, Map<String, Object> body) {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(20))
+                    .header("apikey", apiKey)
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                    .build();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() >= 400) {
+                throw AppException.upstream("Auth request failed (" + res.statusCode() + ")");
+            }
+            return mapper.readTree(res.body());
+        } catch (AppException e) {
+            throw e;
+        } catch (Exception e) {
+            throw AppException.upstream("Auth request failed");
+        }
+    }
+}

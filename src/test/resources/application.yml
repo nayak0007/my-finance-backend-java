@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/finance}
+    username: ${DATABASE_USER:finance}
+    password: ${DATABASE_PASSWORD:finance}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+
+app:
+  supabase:
+    url: https://example.supabase.co
+    anon-key: test-anon-key
+    service-role-key: test-service-role-key
+    jwt-secret: test-supabase-jwt-secret-which-is-long-enough
+  cors:
+    origins: http://localhost:8081
+  seed-user-id: "00000000-0000-4000-8000-000000000001"
