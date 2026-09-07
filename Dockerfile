@@ -6,6 +6,9 @@ RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+RUN addgroup -S app && adduser -S app -G app
 COPY --from=build /app/target/*.jar app.jar
-EXPOSE 3000
-ENTRYPOINT ["java", "-jar", "app.jar"]
+USER app
+EXPOSE 10000
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

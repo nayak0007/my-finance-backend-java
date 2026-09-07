@@ -1,0 +1,14 @@
+.git
+.gitignore
+.idea
+*.iml
+.env
+.env.*
+!.env.example
+target
+*.log
+.DS_Store
+uploads
+README.md
+docker-compose.yml
+render.yaml

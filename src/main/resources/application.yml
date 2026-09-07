@@ -1,5 +1,8 @@
 server:
   port: ${PORT:3000}
+  address: 0.0.0.0
+  forward-headers-strategy: framework
+  shutdown: graceful
   error:
     include-message: never
     include-binding-errors: never
@@ -8,6 +11,8 @@ server:
 spring:
   application:
     name: finance-tracker-api
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
   servlet:
     multipart:
       max-file-size: 8MB
@@ -21,6 +26,8 @@ spring:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/finance}
     username: ${DATABASE_USER:finance}
     password: ${DATABASE_PASSWORD:finance}
+    hikari:
+      maximum-pool-size: ${HIKARI_MAXIMUM_POOL_SIZE:10}
   jpa:
     open-in-view: false
     hibernate:

@@ -114,3 +114,38 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_MODEL=llama3.1
 OPENAI_API_KEY=ollama
 ```
+
+## Deploy on Render
+
+This repo includes `render.yaml` (Blueprint) and a production `Dockerfile`. Render has no native Java runtime, so the web service builds the Docker image.
+
+1. Push this repo to GitHub.
+2. In the [Render Dashboard](https://dashboard.render.com), click **New > Blueprint**.
+3. Select the repo. Render creates:
+   - Web service `finance-tracker-api` (Docker)
+   - Postgres `finance-tracker-db` (internal `DATABASE_URL`)
+4. Fill the prompted secrets (`sync: false` in the Blueprint):
+
+| Variable | Notes |
+| --- | --- |
+| `SUPABASE_URL` | Auth project URL |
+| `SUPABASE_ANON_KEY` | Login / refresh / OAuth |
+| `SUPABASE_SERVICE_ROLE_KEY` | Admin signup / password reset |
+| `SUPABASE_JWT_SECRET` | Optional HS256; omit to use JWKS |
+| `CORS_ORIGINS` | Comma-separated frontend origins (Expo / web) |
+| `AUTH_REDIRECT_URL` | Password-recovery deep link or web URL |
+| `OPENAI_API_KEY` | Optional; leave blank for heuristic import |
+
+Flyway runs on boot (`baseline-on-migrate`). The process binds `0.0.0.0:$PORT` (Render default `10000`). Health check: `GET /health`.
+
+### Manual web service (no Blueprint)
+
+- **Language:** Docker
+- **Dockerfile Path:** `./Dockerfile`
+- **Health Check Path:** `/health`
+- Set `DATABASE_URL` to the Render Postgres **internal** URL (`postgresql://...`) or a Supabase pooler JDBC URL.
+
+Spring Boot converts libpq URLs to JDBC and enables `sslmode=require` for non-localhost hosts. Do not also set `DATABASE_USER` / `DATABASE_PASSWORD` unless the URL has no credentials.
+
+Free instances have 512 MB RAM. If the JVM OOMs, upgrade the web service plan (e.g. `0.5c-512mb` or `1c-2g`).
+
