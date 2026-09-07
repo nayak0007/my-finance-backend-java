@@ -126,7 +126,9 @@ This repo includes `render.yaml` (Blueprint) and a production `Dockerfile`. Rend
 
 | Variable | Notes |
 | --- | --- |
-| `DATABASE_URL` | Supabase **session pooler** URI (`postgres://postgres.<ref>:...@aws-0-<region>.pooler.supabase.com:5432/postgres`) |
+| `DATABASE_URL` | Supabase **session pooler** URI. Prefer `postgres://postgres.<ref>:PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres` (credentials in the URL). For `jdbc:postgresql://host:5432/postgres` without userinfo, also set `DATABASE_USER` / `DATABASE_PASSWORD`. |
+| `DATABASE_USER` | Optional. Used only when `DATABASE_URL` has no `user:password@`. Session pooler user is `postgres.<project-ref>`. |
+| `DATABASE_PASSWORD` | Optional. Database password from Supabase → Settings → Database. |
 | `SUPABASE_URL` | Auth project URL |
 | `SUPABASE_ANON_KEY` | Login / refresh / OAuth |
 | `SUPABASE_SERVICE_ROLE_KEY` | Admin signup / password reset |
@@ -143,8 +145,9 @@ Use the session pooler, not `db.<project>.supabase.co` (IPv6-only and often unre
 - **Dockerfile Path:** `./Dockerfile`
 - **Health Check Path:** `/health`
 - Set `DATABASE_URL` to the Supabase session pooler URL.
+- If the URL includes `user:password@`, skip `DATABASE_USER` / `DATABASE_PASSWORD`. If it does not, set both.
 
-Spring Boot converts libpq URLs to JDBC and enables `sslmode=require` for public remote hosts. Do not also set `DATABASE_USER` / `DATABASE_PASSWORD` unless the URL has no credentials.
+Spring Boot converts libpq URLs to JDBC and enables `sslmode=require` for public remote hosts. Credentials embedded in `DATABASE_URL` win over `DATABASE_USER` / `DATABASE_PASSWORD`.
 
 Free instances have 512 MB RAM. If the JVM OOMs, upgrade the web service plan (e.g. `0.5c-512mb` or `1c-2g`).
 
