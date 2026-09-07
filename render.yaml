@@ -7,6 +7,8 @@ services:
     envVars:
       - key: PORT
         value: "10000"
+      - key: LOG_LEVEL
+        value: DEBUG
       - key: JAVA_OPTS
         value: "-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
       - key: HIKARI_MAXIMUM_POOL_SIZE

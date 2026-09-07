@@ -6,6 +6,9 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -19,6 +22,8 @@ import java.util.Map;
 
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
 
     private final JwtService jwtService;
     private final ObjectMapper objectMapper;
@@ -48,21 +53,26 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader("Authorization");
         if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            log.debug("jwt missing bearer method={} path={}", request.getMethod(), request.getRequestURI());
             writeUnauthorized(response);
             return;
         }
         String token = header.substring(7).trim();
         if (token.isEmpty()) {
+            log.debug("jwt empty bearer method={} path={}", request.getMethod(), request.getRequestURI());
             writeUnauthorized(response);
             return;
         }
         try {
             AuthUser user = jwtService.verify(token);
+            MDC.put("uid", user.id().toString());
+            log.debug("jwt ok user={} email={} role={} path={}", user.id(), user.email(), user.role(), request.getRequestURI());
             var auth = new UsernamePasswordAuthenticationToken(
                     user, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
             SecurityContextHolder.getContext().setAuthentication(auth);
             chain.doFilter(request, response);
         } catch (AppException ex) {
+            log.warn("jwt rejected path={} reason={}", request.getRequestURI(), ex.getMessage());
             writeUnauthorized(response);
         }
     }

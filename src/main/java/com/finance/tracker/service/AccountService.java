@@ -4,6 +4,8 @@ import com.finance.tracker.domain.Account;
 import com.finance.tracker.dto.AccountDtos;
 import com.finance.tracker.exception.AppException;
 import com.finance.tracker.repository.AccountRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +19,8 @@ import java.util.UUID;
 @Service
 public class AccountService {
 
+    private static final Logger log = LoggerFactory.getLogger(AccountService.class);
+
     private final AccountRepository accounts;
 
     public AccountService(AccountRepository accounts) {
@@ -24,11 +28,14 @@ public class AccountService {
     }
 
     public List<Map<String, Object>> list(UUID userId) {
-        return accounts.findByUserId(userId).stream().map(this::toMap).toList();
+        List<Map<String, Object>> data = accounts.findByUserId(userId).stream().map(this::toMap).toList();
+        log.debug("accounts list user={} count={}", userId, data.size());
+        return data;
     }
 
     @Transactional
     public Map<String, Object> create(UUID userId, AccountDtos.CreateAccountRequest req) {
+        log.info("accounts create user={} bank={} type={}", userId, req.bank(), req.type());
         Account a = new Account();
         a.setUserId(userId);
         a.setBank(req.bank());
@@ -43,11 +50,14 @@ public class AccountService {
         a.setStatus(req.status() == null ? "connected" : req.status());
         a.setLastSyncedAt(Instant.now());
         a.setCreatedAt(Instant.now());
-        return toMap(accounts.save(a));
+        Map<String, Object> created = toMap(accounts.save(a));
+        log.info("accounts create ok user={} id={}", userId, created.get("id"));
+        return created;
     }
 
     @Transactional
     public Map<String, Object> update(UUID userId, UUID id, AccountDtos.UpdateAccountRequest req) {
+        log.info("accounts update user={} id={}", userId, id);
         Account a = accounts.findByUserIdAndId(userId, id).orElseThrow(() -> AppException.notFound("Account not found"));
         if (req.bank() != null) a.setBank(req.bank());
         if (req.name() != null) a.setName(req.name());
@@ -65,14 +75,17 @@ public class AccountService {
 
     @Transactional
     public Map<String, Object> remove(UUID userId, UUID id, boolean force) {
+        log.info("accounts delete user={} id={} force={}", userId, id, force);
         Account a = accounts.findByUserIdAndId(userId, id).orElseThrow(() -> AppException.notFound("Account not found"));
         long txnCount = accounts.countTransactions(userId, id);
         if (txnCount > 0 && !force) {
+            log.warn("accounts delete blocked user={} id={} txnCount={}", userId, id, txnCount);
             throw AppException.conflict(
                     "This account has " + txnCount + " transaction" + (txnCount == 1 ? "" : "s")
                             + ". Confirm to delete them along with the account.");
         }
         accounts.delete(a);
+        log.info("accounts delete ok user={} id={} deletedTransactions={}", userId, id, txnCount);
         return Map.of("ok", true, "deleted_transactions", txnCount);
     }
 

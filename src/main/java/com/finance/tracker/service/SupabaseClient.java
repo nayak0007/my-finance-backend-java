@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finance.tracker.config.AppProperties;
 import com.finance.tracker.exception.AppException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +19,8 @@ import java.util.UUID;
 
 @Component
 public class SupabaseClient {
+
+    private static final Logger log = LoggerFactory.getLogger(SupabaseClient.class);
 
     private final AppProperties props;
     private final ObjectMapper mapper;
@@ -32,6 +36,7 @@ public class SupabaseClient {
     public record AuthResult(AuthUserInfo user, SessionTokens session) {}
 
     public AuthUserInfo adminCreateUser(String email, String password, String name) {
+        log.debug("supabase adminCreateUser email={}", email);
         JsonNode data = post(
                 props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/admin/users",
                 props.getSupabase().getServiceRoleKey(),
@@ -50,6 +55,7 @@ public class SupabaseClient {
     }
 
     public AuthResult signIn(String email, String password) {
+        log.debug("supabase signIn email={}", email);
         JsonNode data = post(
                 props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/token?grant_type=password",
                 props.getSupabase().getAnonKey(),
@@ -59,6 +65,7 @@ public class SupabaseClient {
     }
 
     public AuthResult refresh(String refreshToken) {
+        log.debug("supabase refresh token");
         JsonNode data = post(
                 props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/token?grant_type=refresh_token",
                 props.getSupabase().getAnonKey(),
@@ -87,6 +94,7 @@ public class SupabaseClient {
      * the recovery email is only sent when the account exists.
      */
     public void recover(String email, String redirectTo) {
+        log.debug("supabase recover email={} redirectTo={}", email, redirectTo);
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("email", email);
         if (redirectTo != null && !redirectTo.isBlank()) {
@@ -115,7 +123,9 @@ public class SupabaseClient {
                     .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(Map.of("password", newPassword))))
                     .build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            log.debug("supabase updatePassword status={}", res.statusCode());
             if (res.statusCode() >= 400) {
+                log.warn("supabase updatePassword failed status={} body={}", res.statusCode(), clip(res.body()));
                 if (res.statusCode() == 401 || res.statusCode() == 403) {
                     throw AppException.unauthorized("This reset link is invalid or has expired. Please request a new one.");
                 }
@@ -124,6 +134,7 @@ public class SupabaseClient {
         } catch (AppException e) {
             throw e;
         } catch (Exception e) {
+            log.warn("supabase updatePassword error: {}", e.getMessage());
             throw AppException.upstream("Password update failed");
         }
     }
@@ -170,15 +181,38 @@ public class SupabaseClient {
                     .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
+            log.debug("supabase POST {}", pathOf(url));
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() >= 400) {
+                log.warn("supabase POST {} status={} body={}", pathOf(url), res.statusCode(), clip(res.body()));
                 throw AppException.upstream("Auth request failed (" + res.statusCode() + ")");
             }
+            log.debug("supabase POST {} status={}", pathOf(url), res.statusCode());
             return mapper.readTree(res.body());
         } catch (AppException e) {
             throw e;
         } catch (Exception e) {
+            log.warn("supabase POST {} error: {}", pathOf(url), e.getMessage());
             throw AppException.upstream("Auth request failed");
         }
+    }
+
+    private static String pathOf(String url) {
+        try {
+            URI uri = URI.create(url);
+            String path = uri.getPath();
+            String query = uri.getQuery();
+            return query == null ? path : path + "?" + query;
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    private static String clip(String body) {
+        if (body == null) {
+            return null;
+        }
+        String trimmed = body.replaceAll("(?i)(\"(?:password|refresh_token|access_token|token)\"\\s*:\\s*\")[^\"]*(\")", "$1***$2");
+        return trimmed.length() <= 300 ? trimmed : trimmed.substring(0, 300) + "...";
     }
 }

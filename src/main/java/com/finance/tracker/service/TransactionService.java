@@ -7,6 +7,8 @@ import com.finance.tracker.repository.AccountRepository;
 import com.finance.tracker.repository.TxnRepository;
 import com.finance.tracker.util.HashUtil;
 import jakarta.persistence.criteria.Predicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -19,6 +21,8 @@ import java.util.*;
 @Service
 public class TransactionService {
 
+    private static final Logger log = LoggerFactory.getLogger(TransactionService.class);
+
     private final TxnRepository txns;
     private final AccountRepository accounts;
 
@@ -28,6 +32,8 @@ public class TransactionService {
     }
 
     public Map<String, Object> list(UUID userId, Instant from, Instant to, String category, UUID accountId, String cursor, int limit) {
+        log.debug("txns list user={} from={} to={} category={} accountId={} hasCursor={} limit={}",
+                userId, from, to, category, accountId, cursor != null && !cursor.isBlank(), limit);
         HashUtil.Cursor decoded = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
@@ -63,27 +69,36 @@ public class TransactionService {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("data", page.stream().map(this::toMap).toList());
         out.put("next_cursor", next);
+        log.debug("txns list ok user={} count={} hasMore={}", userId, page.size(), hasMore);
         return out;
     }
 
     @Transactional
     public Map<String, Object> create(UUID userId, TxnDtos.CreateTxnRequest req) {
+        log.info("txns create user={} accountId={} category={} amount={}", userId, req.accountId(), req.categoryKey(), req.amount());
         accounts.findByUserIdAndId(userId, req.accountId()).orElseThrow(() -> AppException.notFound("Account not found"));
-        return toMap(txns.save(fromCreate(userId, req)));
+        Map<String, Object> created = toMap(txns.save(fromCreate(userId, req)));
+        log.info("txns create ok user={} id={}", userId, created.get("id"));
+        return created;
     }
 
     @Transactional
     public Map<String, Object> bulk(UUID userId, List<TxnDtos.CreateTxnRequest> requests) {
+        log.info("txns bulk user={} requested={}", userId, requests.size());
         Set<UUID> allowed = new HashSet<>(accounts.findByUserId(userId).stream().map(a -> a.getId()).toList());
         List<Txn> valid = requests.stream().filter(r -> allowed.contains(r.accountId())).map(r -> fromCreate(userId, r)).toList();
         if (valid.isEmpty()) {
+            log.warn("txns bulk no matching accounts user={} requested={}", userId, requests.size());
             throw AppException.notFound("No matching accounts for bulk import");
         }
-        return Map.of("data", txns.saveAll(valid).stream().map(this::toMap).toList());
+        List<Map<String, Object>> saved = txns.saveAll(valid).stream().map(this::toMap).toList();
+        log.info("txns bulk ok user={} saved={}", userId, saved.size());
+        return Map.of("data", saved);
     }
 
     @Transactional
     public Map<String, Object> update(UUID userId, UUID id, TxnDtos.UpdateTxnRequest req) {
+        log.info("txns update user={} id={}", userId, id);
         Txn t = txns.findByUserIdAndId(userId, id).orElseThrow(() -> AppException.notFound("Transaction not found"));
         if (req.accountId() != null) {
             accounts.findByUserIdAndId(userId, req.accountId()).orElseThrow(() -> AppException.notFound("Account not found"));
@@ -101,8 +116,10 @@ public class TransactionService {
 
     @Transactional
     public void remove(UUID userId, UUID id) {
+        log.info("txns delete user={} id={}", userId, id);
         Txn t = txns.findByUserIdAndId(userId, id).orElseThrow(() -> AppException.notFound("Transaction not found"));
         txns.delete(t);
+        log.info("txns delete ok user={} id={}", userId, id);
     }
 
     private Txn fromCreate(UUID userId, TxnDtos.CreateTxnRequest req) {

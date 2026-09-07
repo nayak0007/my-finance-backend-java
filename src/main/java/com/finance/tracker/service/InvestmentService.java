@@ -2,6 +2,8 @@ package com.finance.tracker.service;
 
 import com.finance.tracker.repository.HoldingRepository;
 import com.finance.tracker.repository.InvestmentHistoryRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -11,6 +13,7 @@ import java.util.UUID;
 
 @Service
 public class InvestmentService {
+    private static final Logger log = LoggerFactory.getLogger(InvestmentService.class);
     private final HoldingRepository holdings;
     private final InvestmentHistoryRepository history;
     private final SummaryService summaries;
@@ -22,7 +25,7 @@ public class InvestmentService {
     }
 
     public List<Map<String, Object>> holdings(UUID userId) {
-        return holdings.findByUserId(userId).stream().map(h -> {
+        List<Map<String, Object>> data = holdings.findByUserId(userId).stream().map(h -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", h.getId());
             m.put("user_id", h.getUserId());
@@ -36,10 +39,12 @@ public class InvestmentService {
             m.put("gain", h.getValue() - h.getInvested());
             return m;
         }).toList();
+        log.debug("investments holdings user={} count={}", userId, data.size());
+        return data;
     }
 
     public List<Map<String, Object>> history(UUID userId) {
-        return history.findByUserIdOrderByDateDesc(userId).stream().map(h -> {
+        List<Map<String, Object>> data = history.findByUserIdOrderByDateDesc(userId).stream().map(h -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", h.getId());
             m.put("user_id", h.getUserId());
@@ -49,9 +54,12 @@ public class InvestmentService {
             m.put("amount", h.getAmount());
             return m;
         }).toList();
+        log.debug("investments history user={} count={}", userId, data.size());
+        return data;
     }
 
     public List<Map<String, Object>> growth(UUID userId, int months) {
+        log.debug("investments growth user={} months={}", userId, months);
         return summaries.investmentGrowth(userId, months);
     }
 }

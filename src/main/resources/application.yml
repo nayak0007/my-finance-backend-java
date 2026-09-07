@@ -62,6 +62,8 @@ app:
   seed-user-id: ${SEED_USER_ID:00000000-0000-4000-8000-000000000001}
 
 logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%15.15t] %-40.40logger{39} [rid=%X{rid} uid=%X{uid}] : %m%n"
   level:
     root: INFO
-    com.finance.tracker: INFO
+    com.finance.tracker: ${LOG_LEVEL:DEBUG}

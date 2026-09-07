@@ -1,6 +1,8 @@
 package com.finance.tracker.service;
 
 import com.finance.tracker.util.Money;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -13,6 +15,8 @@ import java.util.UUID;
 @Service
 public class InsightsService {
 
+    private static final Logger log = LoggerFactory.getLogger(InsightsService.class);
+
     private final SummaryService summaries;
 
     public InsightsService(SummaryService summaries) {
@@ -20,6 +24,7 @@ public class InsightsService {
     }
 
     public List<Map<String, Object>> compute(UUID userId) {
+        log.debug("insights compute user={}", userId);
         List<Map<String, Object>> insights = new ArrayList<>();
 
         for (Map<String, Object> row : summaries.overspend(userId)) {
@@ -79,6 +84,7 @@ public class InsightsService {
         insight.put("severity", rate >= 20 ? "good" : rate >= 10 ? "info" : "warn");
         insight.put("meta", Map.of("income", income, "spending", spending, "invested", invested, "saved", saved, "rate", rate));
         insights.add(insight);
+        log.debug("insights compute ok user={} count={}", userId, insights.size());
         return insights;
     }
 }

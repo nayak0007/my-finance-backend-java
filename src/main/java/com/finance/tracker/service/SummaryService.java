@@ -1,6 +1,8 @@
 package com.finance.tracker.service;
 
 import com.finance.tracker.util.Money;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +14,8 @@ import java.util.UUID;
 @Service
 public class SummaryService {
 
+    private static final Logger log = LoggerFactory.getLogger(SummaryService.class);
+
     private final JdbcTemplate jdbc;
 
     public SummaryService(JdbcTemplate jdbc) {
@@ -19,6 +23,7 @@ public class SummaryService {
     }
 
     public List<Map<String, Object>> monthly(UUID userId, int months) {
+        log.debug("summary monthly user={} months={}", userId, months);
         return jdbc.query("""
                 SELECT to_char(month, 'YYYY-MM') AS month, income, spending, invested
                 FROM monthly_summary_view
@@ -38,6 +43,7 @@ public class SummaryService {
     }
 
     public Map<String, Object> spendingByCategory(UUID userId, String month) {
+        log.debug("summary spending-by-category user={} month={}", userId, month);
         List<Map<String, Object>> data = jdbc.query("""
                 WITH bounds AS (
                   SELECT (? || '-01')::date AS start_month,
@@ -71,6 +77,7 @@ public class SummaryService {
     }
 
     public List<Map<String, Object>> investmentGrowth(UUID userId, int months) {
+        log.debug("summary investment-growth user={} months={}", userId, months);
         List<Map<String, Object>> rows = jdbc.query("""
                 WITH months AS (
                   SELECT generate_series(
@@ -118,6 +125,7 @@ public class SummaryService {
     }
 
     public List<Map<String, Object>> overspend(UUID userId) {
+        log.debug("summary overspend user={}", userId);
         return jdbc.query("""
                 WITH monthly AS (
                   SELECT t.category_key, c.label, date_trunc('month', t.date)::date AS month, SUM(ABS(t.amount))::integer AS total
@@ -148,6 +156,7 @@ public class SummaryService {
     }
 
     public List<Map<String, Object>> hikes(UUID userId) {
+        log.debug("summary hikes user={}", userId);
         return jdbc.query("""
                 WITH ranked AS (
                   SELECT title, ABS(amount) AS amt, date,
@@ -170,6 +179,7 @@ public class SummaryService {
     }
 
     public Map<String, Object> savings(UUID userId) {
+        log.debug("summary savings user={}", userId);
         return jdbc.queryForObject("""
                 SELECT
                   COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)::integer AS income,
@@ -187,6 +197,7 @@ public class SummaryService {
     }
 
     public List<Map<String, Object>> recurringHikes(UUID userId) {
+        log.debug("summary recurring-hikes user={}", userId);
         return jdbc.query("""
                 SELECT name, amount, change, cycle, next_date
                 FROM recurring

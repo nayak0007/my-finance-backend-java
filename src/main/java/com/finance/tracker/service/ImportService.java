@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finance.tracker.config.AppProperties;
 import com.finance.tracker.exception.AppException;
 import org.apache.pdfbox.Loader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,8 @@ import java.util.regex.Pattern;
 @Service
 public class ImportService {
 
+    private static final Logger log = LoggerFactory.getLogger(ImportService.class);
+
     private static final List<String> CATEGORY_KEYS = List.of(
             "salary", "freelance", "dividend", "interest", "rent", "groceries", "dining",
             "transport", "utilities", "shopping", "health", "entertainment", "emi", "investment", "other");
@@ -42,12 +46,14 @@ public class ImportService {
     }
 
     public List<Map<String, Object>> parseFile(byte[] bytes, String filename, String mime) {
+        log.info("import parse start filename={} mime={} bytes={}", filename, mime, bytes == null ? 0 : bytes.length);
         String text;
         String lower = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
         if ((mime != null && mime.contains("pdf")) || lower.endsWith(".pdf")) {
             try (PDDocument doc = Loader.loadPDF(bytes)) {
                 text = new PDFTextStripper().getText(doc);
             } catch (Exception e) {
+                log.warn("import pdf parse failed filename={} reason={}", filename, e.getMessage());
                 throw AppException.badRequest("Could not parse PDF");
             }
         } else {
@@ -55,8 +61,10 @@ public class ImportService {
         }
         List<Raw> rows = parseStatementText(text);
         if (rows.isEmpty()) {
+            log.warn("import parse empty filename={} chars={}", filename, text.length());
             throw AppException.badRequest("Could not parse any transactions from the uploaded file");
         }
+        log.info("import parse rows filename={} count={}", filename, rows.size());
         return classify(rows);
     }
 
@@ -214,9 +222,11 @@ public class ImportService {
         List<Map<String, Object>> heuristic = rows.stream().map(this::heuristic).toList();
         String apiKey = props.getOpenai().getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
+            log.debug("import classify heuristic-only rows={}", heuristic.size());
             return heuristic;
         }
         try {
+            log.debug("import classify openai start rows={}", rows.size());
             List<Map<String, Object>> payloadRows = new ArrayList<>();
             for (int i = 0; i < rows.size(); i++) {
                 Raw r = rows.get(i);
@@ -242,7 +252,10 @@ public class ImportService {
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-            if (res.statusCode() >= 400) return heuristic;
+            if (res.statusCode() >= 400) {
+                log.warn("import classify openai failed status={}", res.statusCode());
+                return heuristic;
+            }
             JsonNode root = mapper.readTree(res.body());
             String content = root.path("choices").path(0).path("message").path("content").asText(null);
             if (content == null) return heuristic;
@@ -264,8 +277,10 @@ public class ImportService {
                 }
                 out.add(row);
             }
+            log.info("import classify openai ok rows={}", out.size());
             return out;
         } catch (Exception e) {
+            log.warn("import classify openai error: {}", e.getMessage());
             return heuristic;
         }
     }
