@@ -1,11 +1,16 @@
 package com.finance.tracker.service;
 
+import com.finance.tracker.config.AppProperties;
 import com.finance.tracker.domain.Profile;
 import com.finance.tracker.domain.Session;
 import com.finance.tracker.exception.AppException;
 import com.finance.tracker.repository.ProfileRepository;
 import com.finance.tracker.repository.SessionRepository;
+import com.finance.tracker.security.JwtService;
+import com.finance.tracker.security.AuthUser;
 import com.finance.tracker.util.HashUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,14 +23,21 @@ import java.util.UUID;
 @Service
 public class AuthService {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+
     private final SupabaseClient supabase;
     private final ProfileRepository profiles;
     private final SessionRepository sessions;
+    private final JwtService jwtService;
+    private final AppProperties props;
 
-    public AuthService(SupabaseClient supabase, ProfileRepository profiles, SessionRepository sessions) {
+    public AuthService(SupabaseClient supabase, ProfileRepository profiles, SessionRepository sessions,
+                       JwtService jwtService, AppProperties props) {
         this.supabase = supabase;
         this.profiles = profiles;
         this.sessions = sessions;
+        this.jwtService = jwtService;
+        this.props = props;
     }
 
     @Transactional
@@ -90,6 +102,52 @@ public class AuthService {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("user", user);
         out.put("profile", profile == null ? null : profileMap(profile));
+        return out;
+    }
+
+    /**
+     * Sends a password-recovery email (via Supabase) for the given address.
+     * Always answers ok — regardless of whether the account exists or the email
+     * provider is slow/failing — so the endpoint cannot be used to probe which
+     * emails are registered.
+     */
+    @Transactional
+    public Map<String, Object> forgotPassword(String email, String redirectUrl) {
+        String target = (redirectUrl == null || redirectUrl.isBlank())
+                ? props.getAuth().getRedirectUrl()
+                : redirectUrl;
+        try {
+            supabase.recover(email, target);
+        } catch (AppException e) {
+            log.warn("password recovery request for {} failed: {}", email, e.getMessage());
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", true);
+        return out;
+    }
+
+    /**
+     * Completes a password reset using the one-time access token carried by the
+     * recovery email link (Authorization: Bearer). Verifies the token locally to
+     * identify the user, then lets Supabase apply the new password — Supabase
+     * rejects links that are expired or were already consumed.
+     */
+    @Transactional
+    public Map<String, Object> resetPassword(String password, String accessToken) {
+        if (accessToken == null || accessToken.isBlank()) {
+            throw AppException.unauthorized("This reset link is invalid or has expired. Please request a new one.");
+        }
+        AuthUser user;
+        try {
+            user = jwtService.verify(accessToken);
+        } catch (AppException e) {
+            throw AppException.unauthorized("This reset link is invalid or has expired. Please request a new one.");
+        }
+        supabase.updatePassword(accessToken, password);
+        sessions.revokeAllForUser(user.id(), Instant.now());
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", true);
+        out.put("message", "Password updated. You can now sign in with your new password.");
         return out;
     }
 

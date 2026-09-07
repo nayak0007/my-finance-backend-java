@@ -42,6 +42,10 @@ app:
     anon-key: ${SUPABASE_ANON_KEY:test-anon-key}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:test-service-role-key}
     jwt-secret: ${SUPABASE_JWT_SECRET:}
+  auth:
+    # Fallback landing URL for password-recovery emails when the client does not
+    # send redirect_url. Usually a deep link into the app (e.g. myapp://reset-password).
+    redirect-url: ${AUTH_REDIRECT_URL:}
   openai:
     api-key: ${OPENAI_API_KEY:}
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}

@@ -19,4 +19,13 @@ public final class AuthDtos {
     ) {}
 
     public record RefreshRequest(@NotBlank String refreshToken) {}
+
+    public record ForgotPasswordRequest(
+            @NotBlank @Email @Size(max = 255) String email,
+            @Size(max = 500) String redirectUrl
+    ) {}
+
+    public record ResetPasswordRequest(
+            @NotBlank @Size(min = 8, max = 128) String password
+    ) {}
 }

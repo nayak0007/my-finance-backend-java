@@ -8,10 +8,15 @@ public class AppProperties {
     private final Supabase supabase = new Supabase();
     private final Openai openai = new Openai();
     private final Cors cors = new Cors();
+    private final Auth auth = new Auth();
     private String seedUserId = "00000000-0000-4000-8000-000000000001";
 
     public Supabase getSupabase() {
         return supabase;
+    }
+
+    public Auth getAuth() {
+        return auth;
     }
 
     public Openai getOpenai() {
@@ -96,6 +101,24 @@ public class AppProperties {
 
         public void setModel(String model) {
             this.model = model;
+        }
+    }
+
+    public static class Auth {
+        /**
+         * Where the password-recovery email link sends the user after Supabase
+         * verifies the one-time token (fragment carries access_token/type=recovery).
+         * When blank, the client-supplied redirect_url (or Supabase's default site
+         * URL) is used.
+         */
+        private String redirectUrl = "";
+
+        public String getRedirectUrl() {
+            return redirectUrl;
+        }
+
+        public void setRedirectUrl(String redirectUrl) {
+            this.redirectUrl = redirectUrl;
         }
     }
 

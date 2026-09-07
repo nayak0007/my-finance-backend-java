@@ -16,7 +16,11 @@ Spring Boot 3.4 / Java 21 port of [my-finance-backend](https://github.com/nayak0
 cp .env.example .env
 ```
 
-Fill Supabase keys. `DATABASE_URL` may be either:
+Fill Supabase keys. Optional: `AUTH_REDIRECT_URL` — fallback landing URL used by
+password-recovery emails when the app does not send `redirect_url` (e.g.
+`myfinancetracker://reset-password` or `https://app.example.com/reset-password`).
+
+`DATABASE_URL` may be either:
 
 ```
 jdbc:postgresql://localhost:5432/finance
@@ -48,10 +52,35 @@ Same as the Node API:
 | POST | `/auth/login` |
 | POST | `/auth/refresh` |
 | POST | `/auth/logout` |
+| POST | `/auth/forgot-password` |
+| POST | `/auth/reset-password` |
 | GET | `/auth/me` |
 | GET | `/auth/oauth/{google\|apple}` |
 
 `/api/v1/*` requires `Authorization: Bearer <access_token>`.
+
+### Forgot / reset password
+
+```
+POST /auth/forgot-password   { "email": "you@example.com" }
+POST /auth/reset-password    { "password": "new-pass-1234" }
+                             Authorization: Bearer <one-time token from email link>
+```
+
+`forgot-password` delegates to Supabase's `recover` endpoint, which emails a
+one-time reset link. It always answers `200 { "ok": true }` so the API cannot
+be used to probe which emails are registered. The reset link must land
+somewhere the client can read the recovery tokens (`#access_token=...&type=recovery`)
+from — the app passes its own deep-link URL as `redirect_url` in the request
+body, and the server falls back to `AUTH_REDIRECT_URL` when it is omitted.
+
+`reset-password` verifies the bearer token locally and asks Supabase to apply
+the new password (min 8 chars). Supabase rejects links that are expired or were
+already used. On success all locally tracked sessions for the user are revoked
+and the client should ask the user to sign in again.
+
+Make sure the redirect target is allow-listed under Supabase → Authentication →
+URL Configuration when using the hosted GoTrue verify page.
 
 ## API (`/api/v1`)
 

@@ -64,6 +64,51 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void forgotPasswordAlwaysOk() throws Exception {
+        // Always 200 ok regardless of whether the account exists or Supabase is reachable,
+        // so the endpoint cannot be used to enumerate registered emails.
+        mvc.perform(post("/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"aarav.sharma@example.com\",\"redirect_url\":\"myfinancetracker://reset-password\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true));
+        mvc.perform(post("/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"nobody@nowhere.invalid\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true));
+    }
+
+    @Test
+    void forgotPasswordRejectsBadEmail() throws Exception {
+        mvc.perform(post("/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void resetPasswordRequiresValidToken() throws Exception {
+        mvc.perform(post("/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"new-pass-1234\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/auth/reset-password")
+                        .header("Authorization", "Bearer not-a-real-jwt")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"new-pass-1234\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+        mvc.perform(post("/auth/reset-password")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"short\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
     void transactionsRequireAuth() throws Exception {
         mvc.perform(get("/api/v1/transactions")).andExpect(status().isUnauthorized());
     }

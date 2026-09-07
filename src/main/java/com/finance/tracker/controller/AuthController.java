@@ -36,6 +36,20 @@ public class AuthController {
         return auth.refresh(req.refreshToken(), http.getHeader("User-Agent"), http.getRemoteAddr());
     }
 
+    @PostMapping("/forgot-password")
+    public Map<String, Object> forgotPassword(@Valid @RequestBody AuthDtos.ForgotPasswordRequest req) {
+        return auth.forgotPassword(req.email(), req.redirectUrl());
+    }
+
+    @PostMapping("/reset-password")
+    public Map<String, Object> resetPassword(@Valid @RequestBody AuthDtos.ResetPasswordRequest req, HttpServletRequest http) {
+        String header = http.getHeader("Authorization");
+        String token = (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7))
+                ? header.substring(7).trim()
+                : null;
+        return auth.resetPassword(req.password(), token);
+    }
+
     @PostMapping("/logout")
     public Map<String, Object> logout(@RequestBody(required = false) Map<String, String> body) {
         String token = body == null ? null : body.get("refresh_token");

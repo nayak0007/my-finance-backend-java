@@ -81,6 +81,53 @@ public class SupabaseClient {
         }
     }
 
+    /**
+     * Asks Supabase to email a password-recovery link to the given address.
+     * Supabase responds 200 even for unknown addresses (anti-enumeration), and
+     * the recovery email is only sent when the account exists.
+     */
+    public void recover(String email, String redirectTo) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("email", email);
+        if (redirectTo != null && !redirectTo.isBlank()) {
+            body.put("options", Map.of("redirect_to", redirectTo));
+        }
+        post(
+                props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/recover",
+                props.getSupabase().getAnonKey(),
+                body
+        );
+    }
+
+    /**
+     * Sets a new password using the one-time access token from the recovery
+     * email (the session issued with type=recovery). The token is sent to
+     * Supabase itself so it can reject expired or already-used links.
+     */
+    public void updatePassword(String recoveryAccessToken, String newPassword) {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/user"))
+                    .timeout(Duration.ofSeconds(20))
+                    .header("apikey", props.getSupabase().getAnonKey())
+                    .header("Authorization", "Bearer " + recoveryAccessToken)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(Map.of("password", newPassword))))
+                    .build();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() >= 400) {
+                if (res.statusCode() == 401 || res.statusCode() == 403) {
+                    throw AppException.unauthorized("This reset link is invalid or has expired. Please request a new one.");
+                }
+                throw AppException.upstream("Password update failed (" + res.statusCode() + ")");
+            }
+        } catch (AppException e) {
+            throw e;
+        } catch (Exception e) {
+            throw AppException.upstream("Password update failed");
+        }
+    }
+
     public String oauthUrl(String provider, String redirectTo) {
         StringBuilder url = new StringBuilder(props.getSupabase().getUrl().replaceAll("/$", ""))
                 .append("/auth/v1/authorize?provider=").append(provider);
