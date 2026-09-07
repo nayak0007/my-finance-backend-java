@@ -29,6 +29,15 @@ public class SupabaseClient {
     public SupabaseClient(AppProperties props, ObjectMapper mapper) {
         this.props = props;
         this.mapper = mapper;
+        warnIfPlaceholderConfig();
+    }
+
+    private void warnIfPlaceholderConfig() {
+        String url = props.getSupabase().getUrl();
+        if (url.contains("example.supabase.co") || url.contains("your-project.supabase.co")) {
+            log.warn("SUPABASE_URL is still the placeholder ({}). Set SUPABASE_URL, SUPABASE_ANON_KEY and "
+                    + "SUPABASE_SERVICE_ROLE_KEY (e.g. in .env) or all Supabase auth calls will fail.", url);
+        }
     }
 
     public record AuthUserInfo(UUID id, String email, String name) {}
@@ -134,7 +143,7 @@ public class SupabaseClient {
         } catch (AppException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("supabase updatePassword error: {}", e.getMessage());
+            log.warn("supabase updatePassword error: {}", e);
             throw AppException.upstream("Password update failed");
         }
     }
@@ -185,16 +194,37 @@ public class SupabaseClient {
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() >= 400) {
                 log.warn("supabase POST {} status={} body={}", pathOf(url), res.statusCode(), clip(res.body()));
-                throw AppException.upstream("Auth request failed (" + res.statusCode() + ")");
+                AppException mapped = mapError(res.statusCode(), res.body());
+                throw mapped != null ? mapped : AppException.upstream("Auth request failed (" + res.statusCode() + ")");
             }
             log.debug("supabase POST {} status={}", pathOf(url), res.statusCode());
             return mapper.readTree(res.body());
         } catch (AppException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("supabase POST {} error: {}", pathOf(url), e.getMessage());
+            log.warn("supabase POST {} error: {}", url, e);
             throw AppException.upstream("Auth request failed");
         }
+    }
+
+    /**
+     * Translates known Supabase error responses into proper client-facing
+     * AppExceptions. Returns null when the error is not something the client
+     * should see as a specific status and should stay an upstream error.
+     */
+    AppException mapError(int statusCode, String body) {
+        if (statusCode != 422 || body == null || body.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = mapper.readTree(body);
+            if ("email_exists".equals(node.path("error_code").asText(""))) {
+                return AppException.conflict("An account with this email address already exists");
+            }
+        } catch (Exception ignored) {
+            // body was not JSON; fall through to the generic upstream error
+        }
+        return null;
     }
 
     private static String pathOf(String url) {

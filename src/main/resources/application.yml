@@ -9,6 +9,10 @@ server:
     include-stacktrace: never
 
 spring:
+  config:
+    # Load the repo-local .env file (KEY=VALUE) when present, so `cp .env.example .env`
+    # works out of the box. Real env vars always take precedence over the file.
+    import: optional:file:.env[.properties]
   application:
     name: finance-tracker-api
   lifecycle:
@@ -28,6 +32,10 @@ spring:
     password: ${DATABASE_PASSWORD:finance}
     hikari:
       maximum-pool-size: ${HIKARI_MAXIMUM_POOL_SIZE:10}
+      # Supabase's pooler drops connections that sit idle, so keep Hikari's
+      # max-lifetime shorter than that to replace connections before the
+      # server closes them (avoids "Failed to validate connection" noise).
+      max-lifetime: ${HIKARI_MAX_LIFETIME:600000}
   jpa:
     open-in-view: false
     hibernate:
