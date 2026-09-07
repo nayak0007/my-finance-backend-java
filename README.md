@@ -121,13 +121,12 @@ This repo includes `render.yaml` (Blueprint) and a production `Dockerfile`. Rend
 
 1. Push this repo to GitHub.
 2. In the [Render Dashboard](https://dashboard.render.com), click **New > Blueprint**.
-3. Select the repo. Render creates:
-   - Web service `finance-tracker-api` (Docker)
-   - Postgres `finance-tracker-db` (internal `DATABASE_URL`)
+3. Select the repo. Render creates web service `finance-tracker-api` (Docker). Data stays on **Supabase Postgres** — no Render database is provisioned.
 4. Fill the prompted secrets (`sync: false` in the Blueprint):
 
 | Variable | Notes |
 | --- | --- |
+| `DATABASE_URL` | Supabase **session pooler** URI (`postgres://postgres.<ref>:...@aws-0-<region>.pooler.supabase.com:5432/postgres`) |
 | `SUPABASE_URL` | Auth project URL |
 | `SUPABASE_ANON_KEY` | Login / refresh / OAuth |
 | `SUPABASE_SERVICE_ROLE_KEY` | Admin signup / password reset |
@@ -136,16 +135,16 @@ This repo includes `render.yaml` (Blueprint) and a production `Dockerfile`. Rend
 | `AUTH_REDIRECT_URL` | Password-recovery deep link or web URL |
 | `OPENAI_API_KEY` | Optional; leave blank for heuristic import |
 
-Flyway runs on boot (`baseline-on-migrate`). The process binds `0.0.0.0:$PORT` (Render default `10000`). Health check: `GET /health`.
+Use the session pooler, not `db.<project>.supabase.co` (IPv6-only and often unreachable from Render). Flyway runs on boot (`baseline-on-migrate`). The process binds `0.0.0.0:$PORT` (Render default `10000`). Health check: `GET /health`.
 
 ### Manual web service (no Blueprint)
 
 - **Language:** Docker
 - **Dockerfile Path:** `./Dockerfile`
 - **Health Check Path:** `/health`
-- Set `DATABASE_URL` to the Render Postgres **internal** URL (`postgresql://...`) or a Supabase pooler JDBC URL.
+- Set `DATABASE_URL` to the Supabase session pooler URL.
 
-Spring Boot converts libpq URLs to JDBC and enables `sslmode=require` for non-localhost hosts. Do not also set `DATABASE_USER` / `DATABASE_PASSWORD` unless the URL has no credentials.
+Spring Boot converts libpq URLs to JDBC and enables `sslmode=require` for public remote hosts. Do not also set `DATABASE_USER` / `DATABASE_PASSWORD` unless the URL has no credentials.
 
 Free instances have 512 MB RAM. If the JVM OOMs, upgrade the web service plan (e.g. `0.5c-512mb` or `1c-2g`).
 
