@@ -32,7 +32,7 @@ spring:
     password: ${DATABASE_PASSWORD:finance}
     hikari:
       maximum-pool-size: ${HIKARI_MAXIMUM_POOL_SIZE:10}
-      # Supabase's pooler drops connections that sit idle, so keep Hikari's
+      # Neon pooler (PgBouncer) drops idle connections, so keep Hikari's
       # max-lifetime shorter than that to replace connections before the
       # server closes them (avoids "Failed to validate connection" noise).
       max-lifetime: ${HIKARI_MAX_LIFETIME:600000}
@@ -52,11 +52,9 @@ spring:
     baseline-version: 0
 
 app:
-  supabase:
-    url: ${SUPABASE_URL:https://example.supabase.co}
-    anon-key: ${SUPABASE_ANON_KEY:test-anon-key}
-    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:test-service-role-key}
-    jwt-secret: ${SUPABASE_JWT_SECRET:}
+  neon:
+    auth-url: ${NEON_AUTH_URL:}
+    jwt-secret: ${NEON_JWT_SECRET:}
   auth:
     # Fallback landing URL for password-recovery emails when the client does not
     # send redirect_url. Usually a deep link into the app (e.g. myapp://reset-password).

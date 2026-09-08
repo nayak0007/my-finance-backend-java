@@ -5,14 +5,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
 
-    private final Supabase supabase = new Supabase();
+    private final Neon neon = new Neon();
     private final Openai openai = new Openai();
     private final Cors cors = new Cors();
     private final Auth auth = new Auth();
     private String seedUserId = "00000000-0000-4000-8000-000000000001";
 
-    public Supabase getSupabase() {
-        return supabase;
+    public Neon getNeon() {
+        return neon;
     }
 
     public Auth getAuth() {
@@ -35,34 +35,16 @@ public class AppProperties {
         this.seedUserId = seedUserId;
     }
 
-    public static class Supabase {
-        private String url = "https://example.supabase.co";
-        private String anonKey = "";
-        private String serviceRoleKey = "";
+    public static class Neon {
+        private String authUrl = "";
         private String jwtSecret = "";
 
-        public String getUrl() {
-            return url;
+        public String getAuthUrl() {
+            return authUrl;
         }
 
-        public void setUrl(String url) {
-            this.url = url;
-        }
-
-        public String getAnonKey() {
-            return anonKey;
-        }
-
-        public void setAnonKey(String anonKey) {
-            this.anonKey = anonKey;
-        }
-
-        public String getServiceRoleKey() {
-            return serviceRoleKey;
-        }
-
-        public void setServiceRoleKey(String serviceRoleKey) {
-            this.serviceRoleKey = serviceRoleKey;
+        public void setAuthUrl(String authUrl) {
+            this.authUrl = authUrl;
         }
 
         public String getJwtSecret() {
@@ -106,10 +88,9 @@ public class AppProperties {
 
     public static class Auth {
         /**
-         * Where the password-recovery email link sends the user after Supabase
-         * verifies the one-time token (fragment carries access_token/type=recovery).
-         * When blank, the client-supplied redirect_url (or Supabase's default site
-         * URL) is used.
+         * Where the password-recovery email link sends the user after Neon Auth
+         * verifies the one-time token (query carries token). When blank, the
+         * client-supplied redirect_url is used.
          */
         private String redirectUrl = "";
 

@@ -12,7 +12,7 @@ import java.util.Date;
 import java.util.UUID;
 
 public final class JwtTokens {
-    public static final String SECRET = "test-supabase-jwt-secret-which-is-long-enough";
+    public static final String SECRET = "test-neon-jwt-secret-which-is-long-enough";
     public static final UUID USER = UUID.fromString("00000000-0000-4000-8000-000000000001");
     public static final UUID OTHER = UUID.fromString("00000000-0000-4000-8000-000000000002");
 
@@ -30,8 +30,8 @@ public final class JwtTokens {
                     .claim("role", "authenticated")
                     .issueTime(Date.from(Instant.now()))
                     .expirationTime(Date.from(exp))
-                    .issuer("https://example.supabase.co/auth/v1")
-                    .audience("authenticated")
+                    .issuer("https://ep-example.neonauth.us-east-2.aws.neon.tech")
+                    .audience("https://ep-example.neonauth.us-east-2.aws.neon.tech")
                     .build();
             SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
             jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));

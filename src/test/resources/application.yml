@@ -13,11 +13,9 @@ spring:
     baseline-version: 0
 
 app:
-  supabase:
-    url: https://example.supabase.co
-    anon-key: test-anon-key
-    service-role-key: test-service-role-key
-    jwt-secret: test-supabase-jwt-secret-which-is-long-enough
+  neon:
+    auth-url: https://ep-example.neonauth.us-east-2.aws.neon.tech/neondb/auth
+    jwt-secret: test-neon-jwt-secret-which-is-long-enough
   cors:
     origins: http://localhost:8081
   seed-user-id: "00000000-0000-4000-8000-000000000001"

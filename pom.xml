@@ -15,7 +15,7 @@
   <artifactId>finance-tracker-api</artifactId>
   <version>1.0.0</version>
   <name>finance-tracker-api</name>
-  <description>Personal finance tracker REST API (Java 21, Spring Boot, PostgreSQL, Supabase Auth)</description>
+  <description>Personal finance tracker REST API (Java 21, Spring Boot, PostgreSQL, Neon Auth)</description>
 
   <properties>
     <java.version>21</java.version>

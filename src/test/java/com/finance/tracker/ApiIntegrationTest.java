@@ -60,12 +60,12 @@ class ApiIntegrationTest {
     void oauthUrl() throws Exception {
         mvc.perform(get("/auth/oauth/google").param("redirect_to", "http://localhost:8081"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.url", containsString("/auth/v1/authorize")));
+                .andExpect(jsonPath("$.url", containsString("/sign-in/social")));
     }
 
     @Test
     void forgotPasswordAlwaysOk() throws Exception {
-        // Always 200 ok regardless of whether the account exists or Supabase is reachable,
+        // Always 200 ok regardless of whether the account exists or Neon Auth is reachable,
         // so the endpoint cannot be used to enumerate registered emails.
         mvc.perform(post("/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
