@@ -51,10 +51,16 @@ Seed is optional (`--seed`). It writes demo ledger rows for `SEED_USER_ID`. Skip
 | `DATABASE_USER` | no | Only if `DATABASE_URL` has no `user:password@` |
 | `DATABASE_PASSWORD` | no | Only if `DATABASE_URL` has no `user:password@` |
 | `NEON_AUTH_URL` | yes (for real auth) | Console → Auth, no trailing slash. Example: `https://ep-xxx.neonauth.REGION.aws.neon.tech/neondb/auth` |
+| `NEON_AUTH_ORIGIN` | no | Origin header for server-to-server Neon Auth calls; avoids `MISSING_ORIGIN`. Falls back to first `CORS_ORIGINS` entry |
 | `NEON_JWT_SECRET` | no | HS256 for local tests. Omit in production so JWTs are verified via JWKS (EdDSA) |
 | `AUTH_REDIRECT_URL` | no | Fallback password-reset landing URL |
 | `CORS_ORIGINS` | no | Comma-separated frontend origins |
 | `OPENAI_API_KEY` | no | Leave blank for heuristic import |
+| `GOOGLE_CLIENT_ID` | for Gmail sync | Google Cloud OAuth client (type "Web application") |
+| `GOOGLE_CLIENT_SECRET` | for Gmail sync | Client secret for the above |
+| `GOOGLE_REDIRECT_URI` | for Gmail sync | Must be an authorized redirect URI on the client, e.g. `https://api.example.com/api/v1/sync/gmail/callback` |
+| `GOOGLE_SCOPES` | no | Defaults to `https://www.googleapis.com/auth/gmail.readonly` |
+| `SYNC_ENCRYPTION_KEY` | no | AES key for Google refresh tokens at rest. Falls back to `NEON_JWT_SECRET` |
 | `SEED_USER_ID` | no | Demo user for `--seed` |
 
 Copy values from Neon Console:
@@ -111,8 +117,24 @@ Existing password hashes from another provider cannot be imported (different alg
 - `GET|POST /goals` `PATCH /goals/:id`
 - `GET /insights`
 - `POST /import/parse` multipart `file`
+- `GET /sync/status` — per-user connection state (Gmail / SMS)
+- `POST /sync/gmail/auth-url` — starts server-side Google OAuth, returns the consent URL
+- `GET /sync/gmail/callback` — public browser callback; exchanges the code, stores the encrypted refresh token
+- `POST /sync/gmail/sync` — fetches recent messages, parses alerts, de-dupes; `save: true` inserts, otherwise returns for preview
+- `DELETE /sync/gmail` — disconnect + revoke
+- `POST /sync/sms/parse` — parses raw SMS read on-device (never saves)
 
 Errors: `{ "error": { "code", "message" } }`.
+
+## SMS + Gmail sync
+
+Smart Import sources transactions three ways besides statement upload:
+
+- **SMS (Android):** the app reads the inbox with a native module (`react-native-get-sms-android`, needs a development build), filters bank/fintech senders and POSTs the raw messages to `POST /api/v1/sync/sms/parse`. Parsing and AI/heuristic classification run here; the app previews the result and saves via `POST /transactions/bulk`.
+- **Gmail:** the app calls `POST /api/v1/sync/gmail/auth-url` and opens the returned URL in a browser. Google redirects to `GET /api/v1/sync/gmail/callback`, which exchanges the code for a refresh token and stores it AES-GCM encrypted (`SYNC_ENCRYPTION_KEY` or `NEON_JWT_SECRET`). `POST /api/v1/sync/gmail/sync` then lists recent messages, parses debit/credit/UPI alerts and de-dupes.
+- **De-duplication:** parsed transactions carry an `external_id` (`gmail:<messageId>` / `sms:<content-hash>`); a unique partial index on `(user_id, external_id)` keeps the same alert from being imported twice. `POST /transactions/bulk` also skips existing external ids.
+
+V2 migration adds the `transactions.external_id` column and the `sync_connections` table (RLS enabled).
 
 ## Tests
 

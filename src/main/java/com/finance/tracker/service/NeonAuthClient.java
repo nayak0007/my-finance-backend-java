@@ -105,13 +105,13 @@ public class NeonAuthClient {
             return;
         }
         try {
-            HttpRequest req = HttpRequest.newBuilder()
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(authBase() + "/sign-out"))
                     .timeout(Duration.ofSeconds(15))
                     .header("Authorization", "Bearer " + accessOrRefreshToken)
-                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                    .POST(HttpRequest.BodyPublishers.ofString("{}"))
-                    .build();
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE);
+            originHeader().ifPresent(o -> builder.header("Origin", o));
+            HttpRequest req = builder.POST(HttpRequest.BodyPublishers.ofString("{}")).build();
             http.send(req, HttpResponse.BodyHandlers.discarding());
         } catch (Exception ignored) {
         }
@@ -296,13 +296,13 @@ public class NeonAuthClient {
             throw AppException.upstream("Neon Auth is not configured");
         }
         try {
-            HttpRequest req = HttpRequest.newBuilder()
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(authBase() + path))
                     .timeout(Duration.ofSeconds(20))
-                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
-                    .build();
-            log.debug("neon auth POST {}", path);
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE);
+            originHeader().ifPresent(o -> builder.header("Origin", o));
+            HttpRequest req = builder.POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
+            log.debug("neon auth POST {} origin={}", path, originHeader().orElse(""));
             return http.send(req, HttpResponse.BodyHandlers.ofString());
         } catch (AppException e) {
             throw e;
@@ -397,6 +397,29 @@ public class NeonAuthClient {
             return node.get("data");
         }
         return node;
+    }
+
+    /**
+     * Origin header value for server-to-server Neon Auth calls. Better Auth
+     * rejects POSTs with MISSING_ORIGIN unless the body carries an absolute
+     * callbackURL. Uses NEON_AUTH_ORIGIN when set, otherwise falls back to the
+     * first configured CORS origin (the app's web origin).
+     */
+    private Optional<String> originHeader() {
+        String explicit = props.getNeon().getAuthOrigin();
+        if (explicit != null && !explicit.isBlank()) {
+            return Optional.of(explicit.trim());
+        }
+        String cors = props.getCors().getOrigins();
+        if (cors != null && !cors.isBlank()) {
+            for (String candidate : cors.split(",")) {
+                String origin = candidate.trim();
+                if (!origin.isBlank() && !"*".equals(origin)) {
+                    return Optional.of(origin);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private String authBase() {

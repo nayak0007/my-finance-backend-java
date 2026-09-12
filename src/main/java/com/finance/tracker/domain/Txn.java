@@ -39,6 +39,9 @@ public class Txn {
     @Column(precision = 4, scale = 3)
     private BigDecimal confidence;
 
+    @Column(name = "external_id")
+    private String externalId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -62,6 +65,8 @@ public class Txn {
     public void setSource(String source) { this.source = source; }
     public BigDecimal getConfidence() { return confidence; }
     public void setConfidence(BigDecimal confidence) { this.confidence = confidence; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

@@ -50,6 +50,58 @@ class NeonAuthClientTest {
     }
 
     @Test
+    void originHeaderFallsBackToFirstCorsOrigin() throws Exception {
+        AppProperties props = new AppProperties();
+        props.getCors().setOrigins("http://localhost:8081,http://localhost:19006");
+        NeonAuthClient auth = new NeonAuthClient(props, new ObjectMapper());
+        var method = NeonAuthClient.class.getDeclaredMethod("originHeader");
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var value = (java.util.Optional<String>) method.invoke(auth);
+        assertTrue(value.isPresent());
+        assertEquals("http://localhost:8081", value.get());
+    }
+
+    @Test
+    void originHeaderPrefersExplicitConfig() throws Exception {
+        AppProperties props = new AppProperties();
+        props.getNeon().setAuthOrigin("https://app.example.com");
+        props.getCors().setOrigins("http://localhost:8081");
+        NeonAuthClient auth = new NeonAuthClient(props, new ObjectMapper());
+        var method = NeonAuthClient.class.getDeclaredMethod("originHeader");
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var value = (java.util.Optional<String>) method.invoke(auth);
+        assertTrue(value.isPresent());
+        assertEquals("https://app.example.com", value.get());
+    }
+
+    @Test
+    void originHeaderEmptyWhenNothingConfigured() throws Exception {
+        AppProperties props = new AppProperties();
+        props.getCors().setOrigins("");
+        NeonAuthClient auth = new NeonAuthClient(props, new ObjectMapper());
+        var method = NeonAuthClient.class.getDeclaredMethod("originHeader");
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var value = (java.util.Optional<String>) method.invoke(auth);
+        assertTrue(value.isEmpty());
+    }
+
+    @Test
+    void originHeaderSkipsWildcard() throws Exception {
+        AppProperties props = new AppProperties();
+        props.getCors().setOrigins("*,http://localhost:19006");
+        NeonAuthClient auth = new NeonAuthClient(props, new ObjectMapper());
+        var method = NeonAuthClient.class.getDeclaredMethod("originHeader");
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var value = (java.util.Optional<String>) method.invoke(auth);
+        assertTrue(value.isPresent());
+        assertEquals("http://localhost:19006", value.get());
+    }
+
+    @Test
     void oauthUrlIncludesProviderAndCallback() {
         AppProperties props = new AppProperties();
         props.getNeon().setAuthUrl("https://ep-cool.neonauth.us-east-2.aws.neon.tech/neondb/auth");
