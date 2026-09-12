@@ -32,7 +32,7 @@ spring:
     password: ${DATABASE_PASSWORD:finance}
     hikari:
       maximum-pool-size: ${HIKARI_MAXIMUM_POOL_SIZE:10}
-      # Supabase's pooler drops connections that sit idle, so keep Hikari's
+      # Neon pooler (PgBouncer) drops idle connections, so keep Hikari's
       # max-lifetime shorter than that to replace connections before the
       # server closes them (avoids "Failed to validate connection" noise).
       max-lifetime: ${HIKARI_MAX_LIFETIME:600000}
@@ -52,11 +52,13 @@ spring:
     baseline-version: 0
 
 app:
-  supabase:
-    url: ${SUPABASE_URL:https://example.supabase.co}
-    anon-key: ${SUPABASE_ANON_KEY:test-anon-key}
-    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:test-service-role-key}
-    jwt-secret: ${SUPABASE_JWT_SECRET:}
+  neon:
+    auth-url: ${NEON_AUTH_URL:}
+    jwt-secret: ${NEON_JWT_SECRET:}
+    # Origin header sent on server-to-server Neon Auth calls. Better Auth rejects
+    # POSTs without an Origin (MISSING_ORIGIN) unless the body has an absolute
+    # callbackURL. Set it to one of your trusted origins (Neon Console → Auth).
+    auth-origin: ${NEON_AUTH_ORIGIN:}
   auth:
     # Fallback landing URL for password-recovery emails when the client does not
     # send redirect_url. Usually a deep link into the app (e.g. myapp://reset-password).
@@ -65,6 +67,16 @@ app:
     api-key: ${OPENAI_API_KEY:}
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
     model: ${OPENAI_MODEL:gpt-4o-mini}
+  gmail:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    # Must match an authorized redirect URI on the Google OAuth client and be
+    # reachable from the user's browser (absolute URL, e.g. https://api.example.com/api/v1/sync/gmail/callback).
+    redirect-uri: ${GOOGLE_REDIRECT_URI:}
+    scopes: ${GOOGLE_SCOPES:https://www.googleapis.com/auth/gmail.readonly}
+  sync:
+    # AES key for OAuth tokens at rest. Falls back to NEON_JWT_SECRET when blank.
+    encryption-key: ${SYNC_ENCRYPTION_KEY:}
   cors:
     origins: ${CORS_ORIGINS:http://localhost:8081}
   seed-user-id: ${SEED_USER_ID:00000000-0000-4000-8000-000000000001}

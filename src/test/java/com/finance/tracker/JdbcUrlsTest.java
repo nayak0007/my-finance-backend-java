@@ -41,6 +41,17 @@ class JdbcUrlsTest {
     }
 
     @Test
+    void convertsNeonPooledUrlAndForcesSsl() {
+        JdbcUrls.Parsed parsed = JdbcUrls.parse(
+                "postgresql://app:s3cret@ep-cool-darkness-a1b2c3d4-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require",
+                null,
+                null);
+        assertEquals("jdbc:postgresql://ep-cool-darkness-a1b2c3d4-pooler.us-east-2.aws.neon.tech:5432/neondb?sslmode=require&stringtype=unspecified", parsed.jdbcUrl());
+        assertEquals("app", parsed.user());
+        assertEquals("s3cret", parsed.password());
+    }
+
+    @Test
     void doesNotDuplicateExistingQueryParams() {
         JdbcUrls.Parsed parsed = JdbcUrls.parse(
                 "postgresql://u:p@db.example.com:5432/finance?sslmode=prefer&stringtype=unspecified",

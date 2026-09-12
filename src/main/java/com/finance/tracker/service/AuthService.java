@@ -25,15 +25,15 @@ public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
-    private final SupabaseClient supabase;
+    private final NeonAuthClient neonAuth;
     private final ProfileRepository profiles;
     private final SessionRepository sessions;
     private final JwtService jwtService;
     private final AppProperties props;
 
-    public AuthService(SupabaseClient supabase, ProfileRepository profiles, SessionRepository sessions,
+    public AuthService(NeonAuthClient neonAuth, ProfileRepository profiles, SessionRepository sessions,
                        JwtService jwtService, AppProperties props) {
-        this.supabase = supabase;
+        this.neonAuth = neonAuth;
         this.profiles = profiles;
         this.sessions = sessions;
         this.jwtService = jwtService;
@@ -43,11 +43,11 @@ public class AuthService {
     @Transactional
     public Map<String, Object> signup(String name, String email, String password) {
         log.info("auth signup start email={}", email);
-        var created = supabase.adminCreateUser(email, password, name);
+        var created = neonAuth.adminCreateUser(email, password, name);
         log.info("auth signup user created id={}", created.id());
         Profile profile = upsertProfile(created.id(), name, email, "Free");
         try {
-            var login = supabase.signIn(email, password);
+            var login = neonAuth.signIn(email, password);
             storeSession(created.id(), login.session().refreshToken(), null, null);
             Map<String, Object> session = sessionMap(login.session());
             log.info("auth signup ok user={} hasSession=true", created.id());
@@ -65,7 +65,7 @@ public class AuthService {
     public Map<String, Object> login(String email, String password, String userAgent, String ip) {
         log.info("auth login start email={} ip={}", email, ip);
         try {
-            var result = supabase.signIn(email, password);
+            var result = neonAuth.signIn(email, password);
             String name = result.user().name() != null ? result.user().name() : email.split("@")[0];
             Profile profile = upsertProfile(result.user().id(), name, result.user().email() != null ? result.user().email() : email, null);
             storeSession(result.user().id(), result.session().refreshToken(), userAgent, ip);
@@ -86,7 +86,7 @@ public class AuthService {
     @Transactional
     public Map<String, Object> refresh(String refreshToken, String userAgent, String ip) {
         log.info("auth refresh start ip={}", ip);
-        var result = supabase.refresh(refreshToken);
+        var result = neonAuth.refresh(refreshToken);
         sessions.revokeByHash(HashUtil.sha256(refreshToken), Instant.now());
         storeSession(result.user().id(), result.session().refreshToken(), userAgent, ip);
         log.info("auth refresh ok user={}", result.user().id());
@@ -98,6 +98,7 @@ public class AuthService {
         log.info("auth logout start user={} hasRefreshToken={}", userId, refreshToken != null && !refreshToken.isBlank());
         if (refreshToken != null && !refreshToken.isBlank()) {
             sessions.revokeByHash(HashUtil.sha256(refreshToken), Instant.now());
+            neonAuth.signOut(refreshToken);
         } else if (userId != null) {
             sessions.revokeAllForUser(userId, Instant.now());
         }
@@ -118,7 +119,7 @@ public class AuthService {
     }
 
     /**
-     * Sends a password-recovery email (via Supabase) for the given address.
+     * Sends a password-recovery email (via Neon Auth) for the given address.
      * Always answers ok — regardless of whether the account exists or the email
      * provider is slow/failing — so the endpoint cannot be used to probe which
      * emails are registered.
@@ -130,10 +131,10 @@ public class AuthService {
                 : redirectUrl;
         log.info("auth forgot-password start email={} redirect={}", email, blankToNull(target));
         try {
-            supabase.recover(email, target);
-            log.info("auth forgot-password supabase accepted email={}", email);
+            neonAuth.recover(email, target);
+            log.info("auth forgot-password neon accepted email={}", email);
         } catch (AppException e) {
-            log.warn("auth forgot-password supabase failed email={} reason={}", email, e.getMessage());
+            log.warn("auth forgot-password neon failed email={} reason={}", email, e.getMessage());
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", true);
@@ -141,10 +142,9 @@ public class AuthService {
     }
 
     /**
-     * Completes a password reset using the one-time access token carried by the
-     * recovery email link (Authorization: Bearer). Verifies the token locally to
-     * identify the user, then lets Supabase apply the new password — Supabase
-     * rejects links that are expired or were already consumed.
+     * Completes a password reset using the one-time token from the recovery
+     * email (Authorization: Bearer). Neon Auth applies the new password and
+     * rejects tokens that are expired or already consumed.
      */
     @Transactional
     public Map<String, Object> resetPassword(String password, String accessToken) {
@@ -153,17 +153,21 @@ public class AuthService {
             log.warn("auth reset-password missing recovery token");
             throw AppException.unauthorized("This reset link is invalid or has expired. Please request a new one.");
         }
-        AuthUser user;
+        UUID userId = null;
         try {
-            user = jwtService.verify(accessToken);
+            AuthUser user = jwtService.verify(accessToken);
+            userId = user.id();
+            log.info("auth reset-password verified jwt user={}", userId);
         } catch (AppException e) {
-            log.warn("auth reset-password token verify failed: {}", e.getMessage());
-            throw AppException.unauthorized("This reset link is invalid or has expired. Please request a new one.");
+            log.debug("auth reset-password token is not a JWT, treating as Neon reset token");
         }
-        log.info("auth reset-password verified user={}", user.id());
-        supabase.updatePassword(accessToken, password);
-        sessions.revokeAllForUser(user.id(), Instant.now());
-        log.info("auth reset-password ok user={} sessionsRevoked=all", user.id());
+        neonAuth.updatePassword(accessToken, password);
+        if (userId != null) {
+            sessions.revokeAllForUser(userId, Instant.now());
+            log.info("auth reset-password ok user={} sessionsRevoked=all", userId);
+        } else {
+            log.info("auth reset-password ok sessionsRevoked=none");
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", true);
         out.put("message", "Password updated. You can now sign in with your new password.");
@@ -172,11 +176,11 @@ public class AuthService {
 
     public Map<String, Object> oauthUrl(String provider, String redirectTo) {
         log.info("auth oauth start provider={} redirectTo={}", provider, blankToNull(redirectTo));
-        if (!provider.equals("google") && !provider.equals("apple")) {
+        if (!provider.equals("google") && !provider.equals("apple") && !provider.equals("github")) {
             log.warn("auth oauth invalid provider={}", provider);
             throw AppException.validation("Invalid provider", null);
         }
-        return Map.of("url", supabase.oauthUrl(provider, redirectTo));
+        return Map.of("url", neonAuth.oauthUrl(provider, redirectTo));
     }
 
     private Profile upsertProfile(UUID id, String name, String email, String plan) {
@@ -212,7 +216,7 @@ public class AuthService {
         sessions.save(session);
     }
 
-    private Map<String, Object> sessionMap(SupabaseClient.SessionTokens s) {
+    private Map<String, Object> sessionMap(NeonAuthClient.SessionTokens s) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("access_token", s.accessToken());
         m.put("refresh_token", s.refreshToken());

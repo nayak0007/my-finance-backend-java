@@ -19,7 +19,12 @@ public final class TxnDtos {
             @NotNull Integer amount,
             @NotNull Instant date,
             @Pattern(regexp = "sms|email|statement|investment|manual") String source,
-            @DecimalMin("0") @DecimalMax("1") BigDecimal confidence
+            @DecimalMin("0") @DecimalMax("1") BigDecimal confidence,
+            /**
+             * Stable id of the external source message (Gmail message id / SMS
+             * content hash) used to skip duplicates on bulk import.
+             */
+            @Size(max = 255) String externalId
     ) {}
 
     public record UpdateTxnRequest(

@@ -44,9 +44,10 @@ public class AuthController {
     @PostMapping("/reset-password")
     public Map<String, Object> resetPassword(@Valid @RequestBody AuthDtos.ResetPasswordRequest req, HttpServletRequest http) {
         String header = http.getHeader("Authorization");
-        String token = (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7))
+        String bearer = (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7))
                 ? header.substring(7).trim()
                 : null;
+        String token = (req.token() != null && !req.token().isBlank()) ? req.token() : bearer;
         return auth.resetPassword(req.password(), token);
     }
 

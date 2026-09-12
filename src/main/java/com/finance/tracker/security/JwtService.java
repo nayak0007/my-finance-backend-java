@@ -38,6 +38,9 @@ public class JwtService {
             JWTClaimsSet claims = processor().process(token, null);
             String sub = claims.getSubject();
             if (sub == null || sub.isBlank()) {
+                sub = claims.getStringClaim("id");
+            }
+            if (sub == null || sub.isBlank()) {
                 throw AppException.unauthorized("Token is missing subject");
             }
             String email = claims.getStringClaim("email");
@@ -57,16 +60,17 @@ public class JwtService {
             return processor;
         }
         DefaultJWTProcessor<SecurityContext> p = new DefaultJWTProcessor<>();
-        String secret = props.getSupabase().getJwtSecret();
+        String secret = props.getNeon().getJwtSecret();
         if (secret != null && !secret.isBlank()) {
             log.info("jwt verifier=HS256 secretChars={}", secret.length());
             SecretKey key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
             p.setJWSKeySelector(new SingleKeyJWSKeySelector<>(JWSAlgorithm.HS256, key));
         } else {
-            String jwks = props.getSupabase().getUrl().replaceAll("/$", "") + "/auth/v1/.well-known/jwks.json";
-            log.info("jwt verifier=JWKS url={}", jwks);
+            String base = props.getNeon().getAuthUrl().replaceAll("/$", "");
+            String jwks = base + "/.well-known/jwks.json";
+            log.info("jwt verifier=EdDSA jwks={}", jwks);
             JWKSource<SecurityContext> source = new RemoteJWKSet<>(URI.create(jwks).toURL());
-            p.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.ES256, source));
+            p.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.EdDSA, source));
         }
         this.processor = p;
         return processor;

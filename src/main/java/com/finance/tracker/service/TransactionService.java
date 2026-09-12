@@ -86,14 +86,43 @@ public class TransactionService {
     public Map<String, Object> bulk(UUID userId, List<TxnDtos.CreateTxnRequest> requests) {
         log.info("txns bulk user={} requested={}", userId, requests.size());
         Set<UUID> allowed = new HashSet<>(accounts.findByUserId(userId).stream().map(a -> a.getId()).toList());
-        List<Txn> valid = requests.stream().filter(r -> allowed.contains(r.accountId())).map(r -> fromCreate(userId, r)).toList();
+        Set<String> existingExternal = new HashSet<>(existingExternalIds(userId, requests));
+        List<Txn> valid = requests.stream()
+                .filter(r -> allowed.contains(r.accountId()))
+                .filter(r -> r.externalId() == null || r.externalId().isBlank() || !existingExternal.contains(r.externalId()))
+                .map(r -> fromCreate(userId, r))
+                .toList();
         if (valid.isEmpty()) {
-            log.warn("txns bulk no matching accounts user={} requested={}", userId, requests.size());
+            log.warn("txns bulk no matching/unique accounts user={} requested={} existingExternal={}",
+                    userId, requests.size(), existingExternal.size());
             throw AppException.notFound("No matching accounts for bulk import");
         }
         List<Map<String, Object>> saved = txns.saveAll(valid).stream().map(this::toMap).toList();
-        log.info("txns bulk ok user={} saved={}", userId, saved.size());
-        return Map.of("data", saved);
+        log.info("txns bulk ok user={} saved={} skippedDuplicates={}", userId, saved.size(), existingExternal.size());
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("data", saved);
+        out.put("skipped", existingExternal.size());
+        return out;
+    }
+
+    /**
+     * External ids (Gmail message id / SMS content hash) that already exist for
+     * this user, used to skip re-importing synced messages.
+     */
+    public Set<String> existingExternalIds(UUID userId, Collection<TxnDtos.CreateTxnRequest> requests) {
+        List<String> ids = requests.stream()
+                .map(TxnDtos.CreateTxnRequest::externalId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) return Set.of();
+        return txns.findExternalIdsByUserId(userId, ids);
+    }
+
+    public List<Txn> findByExternalIds(UUID userId, Collection<String> externalIds) {
+        List<String> ids = externalIds.stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
+        if (ids.isEmpty()) return List.of();
+        return txns.findByUserIdAndExternalIdIn(userId, ids);
     }
 
     @Transactional
@@ -133,6 +162,7 @@ public class TransactionService {
         t.setDate(req.date());
         t.setSource(req.source() == null ? "manual" : req.source());
         t.setConfidence(req.confidence());
+        t.setExternalId(req.externalId() == null || req.externalId().isBlank() ? null : req.externalId());
         t.setCreatedAt(Instant.now());
         return t;
     }
@@ -149,6 +179,7 @@ public class TransactionService {
         m.put("date", t.getDate());
         m.put("source", t.getSource());
         m.put("confidence", t.getConfidence() == null ? null : t.getConfidence());
+        m.put("external_id", t.getExternalId());
         m.put("created_at", t.getCreatedAt());
         return m;
     }
