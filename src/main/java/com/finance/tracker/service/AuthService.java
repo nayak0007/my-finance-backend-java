@@ -78,6 +78,12 @@ public class AuthService {
             out.put("token_type", result.session().tokenType());
             return out;
         } catch (AppException e) {
+            if (!"UNAUTHORIZED".equals(e.getCode())) {
+                // Config/upstream failures (e.g. NEON_AUTH_URL not set) must not masquerade
+                // as bad credentials, or a broken deployment looks like a wrong password.
+                log.error("auth login failed email={} code={} reason={}", email, e.getCode(), e.getMessage());
+                throw e;
+            }
             log.warn("auth login failed email={} reason={}", email, e.getMessage());
             throw AppException.unauthorized("Invalid email or password");
         }

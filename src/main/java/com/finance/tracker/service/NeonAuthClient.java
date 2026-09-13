@@ -29,6 +29,19 @@ public class NeonAuthClient {
     private static final Logger log = LoggerFactory.getLogger(NeonAuthClient.class);
     private static final int JWT_TTL_SECONDS = 900;
 
+    /**
+     * Better Auth's secure session-token cookie name, used when Neon Auth did not tell
+     * us the exact name via a Set-Cookie header (e.g. on a process restart).
+     */
+    private static final String DEFAULT_SESSION_COOKIE_NAME = "__Secure-better-auth.session_token";
+
+    /**
+     * Exact cookie name observed in a Set-Cookie header. Neon Auth signs the session
+     * token into a cookie value (token.signature) and verifies it on /token and
+     * /get-session, so the name matters when we replay that cookie.
+     */
+    private volatile String observedSessionCookieName;
+
     private final AppProperties props;
     private final ObjectMapper mapper;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
@@ -108,6 +121,7 @@ public class NeonAuthClient {
             HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(authBase() + "/sign-out"))
                     .timeout(Duration.ofSeconds(15))
+                    .header("Cookie", cookieHeader(accessOrRefreshToken))
                     .header("Authorization", "Bearer " + accessOrRefreshToken)
                     .header("Content-Type", MediaType.APPLICATION_JSON_VALUE);
             originHeader().ifPresent(o -> builder.header("Origin", o));
@@ -176,7 +190,7 @@ public class NeonAuthClient {
             throw AppException.unauthorized("Invalid email or password");
         }
         String refreshToken = sessionTokenFrom(data, res);
-        String accessToken = firstText(data.path("session"), "access_token", "token");
+        String accessToken = firstText(data.path("session"), "access_token");
         if (accessToken == null) {
             accessToken = firstText(data, "access_token");
         }
@@ -187,7 +201,9 @@ public class NeonAuthClient {
             accessToken = fetchJwt(refreshToken);
         }
         if (accessToken == null) {
-            throw AppException.unauthorized("Invalid email or password");
+            // Neon accepted the credentials; we just could not mint a token for our own
+            // API. Report that honestly instead of pretending the password was wrong.
+            throw AppException.upstream("Signed in, but the identity provider did not return an access token");
         }
         Integer expiresIn = expiresIn(data.path("session"));
         if (expiresIn == null) {
@@ -225,23 +241,43 @@ public class NeonAuthClient {
         return new AuthUserInfo(UUID.fromString(id), email, name);
     }
 
+    /**
+     * Session token to replay on follow-up calls. The signed cookie value comes first:
+     * Neon Auth verifies the cookie signature on /token and /get-session, while the
+     * `token` field in the sign-in body is the unsigned session token and is rejected.
+     */
     private String sessionTokenFrom(JsonNode data, HttpResponse<String> res) {
-        String token = firstText(data.path("session"), "token", "refresh_token");
+        SessionCookie cookie = sessionCookie(res);
+        if (cookie != null) {
+            observedSessionCookieName = cookie.name();
+            return cookie.value();
+        }
+        String token = header(res, "set-auth-token");
+        if (token != null) {
+            return token;
+        }
+        token = firstText(data.path("session"), "token", "refresh_token");
         if (token == null) {
             token = firstText(data, "token", "refresh_token", "session_token");
         }
-        if (token == null) {
-            token = header(res, "set-auth-token");
-        }
-        if (token == null) {
-            token = sessionCookie(res);
+        if (token != null) {
+            log.warn("neon auth response carried no signed session cookie; falling back to the unsigned session token, follow-up calls may be rejected");
         }
         return token;
     }
 
     private String fetchJwt(String sessionToken) {
+        String jwt = requestJwt("/token", sessionToken);
+        if (jwt == null) {
+            // Neon Auth also exposes the JWT as the set-auth-jwt header on get-session.
+            jwt = requestJwt("/get-session", sessionToken);
+        }
+        return jwt;
+    }
+
+    private String requestJwt(String path, String sessionToken) {
         try {
-            HttpResponse<String> res = get("/token", sessionToken);
+            HttpResponse<String> res = get(path, sessionToken);
             JsonNode body = readTree(res.body());
             String jwt = firstText(body, "token", "access_token");
             if (jwt == null) {
@@ -249,7 +285,7 @@ public class NeonAuthClient {
             }
             return jwt;
         } catch (AppException e) {
-            log.debug("neon auth fetchJwt failed: {}", e.getMessage());
+            log.debug("neon auth GET {} failed: {}", path, e.getMessage());
             return null;
         }
     }
@@ -312,18 +348,23 @@ public class NeonAuthClient {
         }
     }
 
-    private HttpResponse<String> get(String path, String bearer) {
+    private HttpResponse<String> get(String path, String sessionToken) {
         if (isPlaceholder(authBase())) {
             throw AppException.upstream("Neon Auth is not configured");
         }
         try {
-            HttpRequest req = HttpRequest.newBuilder()
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(authBase() + path))
-                    .timeout(Duration.ofSeconds(20))
-                    .header("Authorization", "Bearer " + bearer)
-                    .GET()
-                    .build();
-            log.debug("neon auth GET {}", path);
+                    .timeout(Duration.ofSeconds(20));
+            if (sessionToken != null && !sessionToken.isBlank()) {
+                // Managed Neon Auth authenticates /token and /get-session from the signed
+                // session cookie. The Authorization header only counts when the bearer
+                // plugin is enabled, so send both representations.
+                builder.header("Cookie", cookieHeader(sessionToken));
+                builder.header("Authorization", "Bearer " + sessionToken);
+            }
+            HttpRequest req = builder.GET().build();
+            log.debug("neon auth GET {} cookie={}", path, sessionToken != null && !sessionToken.isBlank());
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() >= 400) {
                 log.warn("neon auth GET {} status={} body={}", path, res.statusCode(), clip(res.body()));
@@ -473,27 +514,67 @@ public class NeonAuthClient {
         return null;
     }
 
-    private static String sessionCookie(HttpResponse<String> res) {
-        List<String> cookies = res.headers().allValues("set-cookie");
-        for (String cookie : cookies) {
-            if (cookie == null) {
+    /** Name and value of a session cookie entry. */
+    record SessionCookie(String name, String value) {}
+
+    /**
+     * Cookie header for the calls that must present a session. Neon Auth uses Better
+     * Auth's default secure name; when we have seen the real name in a Set-Cookie
+     * header we replay that one, and otherwise send both known spellings.
+     */
+    private String cookieHeader(String sessionToken) {
+        String name = observedSessionCookieName;
+        if (name != null && !name.isBlank()) {
+            return name + "=" + sessionToken;
+        }
+        return DEFAULT_SESSION_COOKIE_NAME + "=" + sessionToken
+                + "; better-auth.session_token=" + sessionToken;
+    }
+
+    private static SessionCookie sessionCookie(HttpResponse<String> res) {
+        return sessionCookieFrom(res.headers().allValues("set-cookie"));
+    }
+
+    /**
+     * Finds the session-token cookie among Set-Cookie header values. Java's HttpClient
+     * may hand back one value per cookie or several cookies joined into a single value,
+     * so each value is split on cookie boundaries before parsing.
+     */
+    static SessionCookie sessionCookieFrom(List<String> setCookieValues) {
+        if (setCookieValues == null) {
+            return null;
+        }
+        for (String raw : setCookieValues) {
+            if (raw == null || raw.isBlank()) {
                 continue;
             }
-            String lower = cookie.toLowerCase();
-            if (lower.contains("session_token=") || lower.contains("session-token=")) {
-                int eq = cookie.indexOf('=');
-                if (eq < 0) {
-                    continue;
-                }
-                String rest = cookie.substring(eq + 1);
-                int sc = rest.indexOf(';');
-                String value = sc >= 0 ? rest.substring(0, sc) : rest;
-                if (!value.isBlank()) {
-                    return value;
+            for (String entry : raw.split(",(?=\\s*[^;=]+=)")) {
+                SessionCookie cookie = parseCookie(entry);
+                if (cookie != null) {
+                    return cookie;
                 }
             }
         }
         return null;
+    }
+
+    private static SessionCookie parseCookie(String entry) {
+        int eq = entry.indexOf('=');
+        if (eq < 0) {
+            return null;
+        }
+        String name = entry.substring(0, eq).trim();
+        String rest = entry.substring(eq + 1);
+        int separator = rest.indexOf(';');
+        String value = (separator >= 0 ? rest.substring(0, separator) : rest).trim();
+        if (name.isEmpty() || value.isEmpty()) {
+            return null;
+        }
+        String lower = name.toLowerCase();
+        boolean isSessionToken = lower.equals("session_token")
+                || lower.endsWith(".session_token")
+                || lower.endsWith("-session-token");
+        return isSessionToken ? new SessionCookie(name, value) : null;
     }
 
     private static String textOrEmpty(JsonNode node) {

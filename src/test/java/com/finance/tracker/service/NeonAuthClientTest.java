@@ -111,4 +111,33 @@ class NeonAuthClientTest {
         assertTrue(url.contains("provider=google"));
         assertTrue(url.contains("callbackURL="));
     }
+
+    @Test
+    void picksSessionTokenCookieFromSeparateSetCookieHeaders() {
+        var cookie = NeonAuthClient.sessionCookieFrom(java.util.List.of(
+                "__Secure-better-auth.session_data=abc; Max-Age=300; Path=/; HttpOnly; Secure; SameSite=Lax",
+                "__Secure-better-auth.session_token=rawtoken.signature; Max-Age=604800; Path=/; HttpOnly; Secure; SameSite=Lax"));
+
+        assertNotNull(cookie);
+        assertEquals("__Secure-better-auth.session_token", cookie.name());
+        assertEquals("rawtoken.signature", cookie.value());
+    }
+
+    @Test
+    void picksSessionTokenCookieWhenSetCookieValuesAreJoined() {
+        var cookie = NeonAuthClient.sessionCookieFrom(java.util.List.of(
+                "__Secure-better-auth.session_data=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/, "
+                        + "__Secure-better-auth.session_token=rawtoken.signature; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/"));
+
+        assertNotNull(cookie);
+        assertEquals("__Secure-better-auth.session_token", cookie.name());
+        assertEquals("rawtoken.signature", cookie.value());
+    }
+
+    @Test
+    void returnsNullWhenTheSessionTokenCookieIsAbsent() {
+        assertNull(NeonAuthClient.sessionCookieFrom(java.util.List.of(
+                "__Secure-better-auth.session_data=abc; Path=/; HttpOnly")));
+        assertNull(NeonAuthClient.sessionCookieFrom(null));
+    }
 }
